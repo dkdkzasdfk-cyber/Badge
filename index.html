@@ -1,72 +1,39 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لعبة المغامرة الواقعية</title>
+    <title>لعبة المغامرة</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: #000;
-            overflow: hidden;
-            font-family: Arial, sans-serif;
-        }
-        #gameContainer {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-        }
-        #instructions {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            color: white;
-            background: rgba(0,0,0,0.7);
-            padding: 10px;
-            border-radius: 5px;
-            z-index: 100;
-        }
+        body { margin: 0; padding: 0; overflow: hidden; }
+        canvas { display: block; }
     </style>
 </head>
 <body>
-    <div id="gameContainer">
-        <div id="instructions">
-            <h3>🎮 تحكم في اللعبة:</h3>
-            <p>→ ← ↑ ↓ : للحركة</p>
-            <p>زر الفأرة: النظر حولك</p>
-        </div>
-    </div>
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.min.js"></script>
     <script>
         // المتغيرات الأساسية
-        let scene, camera, renderer, controls;
-        let player, terrain, birds = [];
-        let clock = new THREE.Clock();
-        let rain, rainGeo, rainCount = 15000;
+        let scene, camera, renderer;
+        let player, terrain;
+        let moveState = { forward: false, backward: false, left: false, right: false };
 
-        // تهيئة المشهد
+        // تهيئة اللعبة
         function init() {
             // إنشاء المشهد
             scene = new THREE.Scene();
-            scene.fog = new THREE.Fog(0x87CEEB, 50, 300);
+            scene.background = new THREE.Color(0x87CEEB);
 
             // إنشاء الكاميرا
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 1.6, 0);
+            camera.position.set(0, 10, 20);
+            camera.lookAt(0, 0, 0);
 
             // إنشاء المُصيِّر
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
             renderer.shadowMap.enabled = true;
-            document.getElementById('gameContainer').appendChild(renderer.domElement);
+            document.body.appendChild(renderer.domElement);
 
-            // إضافة التحكم
-            controls = new THREE.PointerLockControls(camera, document.body);
-            
             // إضافة الضوء
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
@@ -76,7 +43,7 @@
             directionalLight.castShadow = true;
             scene.add(directionalLight);
 
-            // إنشاء الأرض العشبية
+            // إنشاء الأرض
             createTerrain();
             
             // إنشاء الجبال
@@ -88,23 +55,11 @@
             // إنشاء الشخصية
             createPlayer();
             
-            // إنشاء الطيور
-            createBirds();
-            
             // إضافة المطر
             createRain();
 
-            // إضافة السماء
-            const skybox = new THREE.Sky();
-            skybox.scale.setScalar(450000);
-            scene.add(skybox);
-
-            const sun = new THREE.Vector3();
-            const skyUniforms = skybox.material.uniforms;
-            skyUniforms['sunPosition'].value = sun;
-
-            // إضافة الأحداث
-            setupEventListeners();
+            // إضافة أحداث التحكم
+            setupControls();
             
             // بدء اللعبة
             animate();
@@ -113,51 +68,38 @@
         function createTerrain() {
             const terrainGeometry = new THREE.PlaneGeometry(100, 100, 50, 50);
             const terrainMaterial = new THREE.MeshLambertMaterial({ 
-                color: 0x3a7e3a,
-                wireframe: false
+                color: 0x3a7e3a
             });
             
             terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
             terrain.rotation.x = -Math.PI / 2;
             terrain.receiveShadow = true;
-            
-            // إضافة بعض التضاريس الطبيعية
-            const positions = terrainGeometry.attributes.position.array;
-            for (let i = 0; i < positions.length; i += 3) {
-                positions[i + 2] = Math.random() * 0.5; // ارتفاع عشوائي بسيط
-            }
-            terrainGeometry.attributes.position.needsUpdate = true;
-            
             scene.add(terrain);
         }
 
         function createMountains() {
-            const mountainGroup = new THREE.Group();
-            
-            // إنشاء جبال حول الحافة
-            for (let i = 0; i < 8; i++) {
-                const angle = (i / 8) * Math.PI * 2;
+            for (let i = 0; i < 12; i++) {
+                const angle = (i / 12) * Math.PI * 2;
                 const radius = 45;
                 const x = Math.cos(angle) * radius;
                 const z = Math.sin(angle) * radius;
                 
-                const mountainGeometry = new THREE.ConeGeometry(8, 15 + Math.random() * 10, 8);
+                const height = 15 + Math.random() * 10;
+                const mountainGeometry = new THREE.ConeGeometry(8, height, 8);
                 const mountainMaterial = new THREE.MeshLambertMaterial({ 
                     color: 0x5d4037 
                 });
                 
                 const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial);
-                mountain.position.set(x, 7.5, z);
+                mountain.position.set(x, height/2, z);
                 mountain.castShadow = true;
                 
-                mountainGroup.add(mountain);
+                scene.add(mountain);
             }
-            
-            scene.add(mountainGroup);
         }
 
         function createRiver() {
-            const riverGeometry = new THREE.PlaneGeometry(10, 30);
+            const riverGeometry = new THREE.PlaneGeometry(8, 40);
             const riverMaterial = new THREE.MeshLambertMaterial({ 
                 color: 0x0077be,
                 transparent: true,
@@ -166,73 +108,52 @@
             
             const river = new THREE.Mesh(riverGeometry, riverMaterial);
             river.rotation.x = -Math.PI / 2;
-            river.position.set(15, 0.1, 0);
+            river.position.set(20, 0.1, 0);
             scene.add(river);
         }
 
         function createPlayer() {
             // جسم اللاعب
-            const bodyGeometry = new THREE.CapsuleGeometry(0.3, 1.2, 4, 8);
+            const bodyGeometry = new THREE.BoxGeometry(0.5, 1.5, 0.3);
             const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
             const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
             
             // الرأس
-            const headGeometry = new THREE.SphereGeometry(0.25, 16, 16);
+            const headGeometry = new THREE.SphereGeometry(0.25);
             const headMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
             const head = new THREE.Mesh(headGeometry, headMaterial);
-            head.position.y = 0.8;
+            head.position.y = 0.9;
             
             // الخوذة
-            const helmetGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const helmetGeometry = new THREE.SphereGeometry(0.3);
             const helmetMaterial = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
             const helmet = new THREE.Mesh(helmetGeometry, helmetMaterial);
-            helmet.position.y = 0.8;
+            helmet.position.y = 0.9;
             helmet.scale.set(1, 0.8, 1);
             
             player = new THREE.Group();
             player.add(body);
             player.add(head);
             player.add(helmet);
-            player.position.set(0, 0, 0);
+            player.position.set(0, 1, 0);
             
             scene.add(player);
         }
 
-        function createBirds() {
-            for (let i = 0; i < 5; i++) {
-                const birdGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-                const birdMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
-                const bird = new THREE.Mesh(birdGeometry, birdMaterial);
-                
-                bird.position.set(
-                    Math.random() * 80 - 40,
-                    10 + Math.random() * 10,
-                    Math.random() * 80 - 40
-                );
-                
-                birds.push({
-                    mesh: bird,
-                    speed: 0.5 + Math.random() * 0.5,
-                    angle: Math.random() * Math.PI * 2
-                });
-                
-                scene.add(bird);
-            }
-        }
-
         function createRain() {
-            rainGeo = new THREE.BufferGeometry();
-            const rainPositions = [];
+            const rainGeometry = new THREE.BufferGeometry();
+            const rainCount = 5000;
+            const positions = [];
 
             for (let i = 0; i < rainCount; i++) {
-                rainPositions.push(
+                positions.push(
                     Math.random() * 100 - 50,
-                    Math.random() * 50,
+                    Math.random() * 50 + 10,
                     Math.random() * 100 - 50
                 );
             }
 
-            rainGeo.setAttribute('position', new THREE.Float32BufferAttribute(rainPositions, 3));
+            rainGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             
             const rainMaterial = new THREE.PointsMaterial({
                 color: 0xaaaaaa,
@@ -240,19 +161,11 @@
                 transparent: true
             });
 
-            rain = new THREE.Points(rainGeo, rainMaterial);
+            const rain = new THREE.Points(rainGeometry, rainMaterial);
             scene.add(rain);
         }
 
-        function setupEventListeners() {
-            // التحكم في الحركة
-            const moveState = {
-                forward: false,
-                backward: false,
-                left: false,
-                right: false
-            };
-
+        function setupControls() {
             document.addEventListener('keydown', (event) => {
                 switch (event.code) {
                     case 'ArrowUp':
@@ -294,67 +207,36 @@
                         break;
                 }
             });
-
-            // تحديث الحركة
-            function updateMovement() {
-                const delta = clock.getDelta();
-                const speed = 10 * delta;
-
-                if (moveState.forward) {
-                    controls.moveForward(speed);
-                }
-                if (moveState.backward) {
-                    controls.moveForward(-speed);
-                }
-                if (moveState.left) {
-                    controls.moveRight(-speed);
-                }
-                if (moveState.right) {
-                    controls.moveRight(speed);
-                }
-
-                // تحديث موضع الشخصية المرئية
-                if (player) {
-                    player.position.copy(camera.position);
-                    player.position.y = 0;
-                }
-            }
-
-            // إضافة تحديث الحركة للأنيميشن
-            clock.start();
-            setInterval(updateMovement, 16);
         }
 
         function animate() {
             requestAnimationFrame(animate);
 
-            // تحريك الطيور
-            birds.forEach(bird => {
-                bird.angle += bird.speed * 0.01;
-                bird.mesh.position.x += Math.cos(bird.angle) * 0.1;
-                bird.mesh.position.z += Math.sin(bird.angle) * 0.1;
-                bird.mesh.position.y += Math.sin(Date.now() * 0.001) * 0.05;
-            });
-
-            // تحريك المطر
-            if (rain) {
-                const positions = rainGeo.attributes.position.array;
-                for (let i = 1; i < positions.length; i += 3) {
-                    positions[i] -= 0.2;
-                    if (positions[i] < 0) {
-                        positions[i] = 50;
-                    }
-                }
-                rainGeo.attributes.position.needsUpdate = true;
+            // تحريك اللاعب
+            const speed = 0.5;
+            
+            if (moveState.forward) {
+                player.position.z -= speed;
+                camera.position.z -= speed;
             }
+            if (moveState.backward) {
+                player.position.z += speed;
+                camera.position.z += speed;
+            }
+            if (moveState.left) {
+                player.position.x -= speed;
+                camera.position.x -= speed;
+            }
+            if (moveState.right) {
+                player.position.x += speed;
+                camera.position.x += speed;
+            }
+
+            // تحديث نظر الكاميرا لتبع اللاعب
+            camera.lookAt(player.position);
 
             renderer.render(scene, camera);
         }
-
-        // بدء اللعبة عند النقر
-        document.addEventListener('click', () => {
-            controls.lock();
-        });
 
         // التعامل مع تغيير حجم النافذة
         window.addEventListener('resize', () => {
@@ -363,7 +245,7 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // تشغيل اللعبة
+        // تشغيل اللعبة مباشرة
         init();
     </script>
 </body>
