@@ -1,251 +1,547 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لعبة المغامرة</title>
+    <title>لعبة العالم المفتوح الواقعية</title>
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; }
-        canvas { display: block; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000;
+        }
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        #joystick {
+            position: fixed;
+            bottom: 50px;
+            right: 50px;
+            width: 150px;
+            height: 150px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+        #joystickKnob {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background: rgba(76, 175, 80, 0.8);
+            border-radius: 50%;
+            border: 3px solid #fff;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            cursor: grab;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        #joystickKnob:active {
+            cursor: grabbing;
+        }
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 1000;
+            transition: opacity 0.5s;
+        }
+        #loading.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        #loading h2 {
+            color: white;
+            margin-top: 20px;
+            font-size: 24px;
+        }
+        #weather {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
     </style>
 </head>
 <body>
+    <div id="loading">
+        <div class="loader"></div>
+        <h2>جاري تحميل اللعبة...</h2>
+    </div>
+    
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="info">
+        <div><strong>التحكم:</strong> استخدم الجوي ستيك للحركة</div>
+        <div id="fps">FPS: 60</div>
+        <div id="position">الموقع: (0, 0, 0)</div>
+    </div>
+    
+    <div id="weather">
+        <div id="weatherStatus">☀️ صافي</div>
+    </div>
+    
+    <div id="joystick">
+        <div id="joystickKnob"></div>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        // المتغيرات الأساسية
+        // Game Variables
         let scene, camera, renderer;
-        let player, terrain;
-        let moveState = { forward: false, backward: false, left: false, right: false };
+        let player, playerVelocity = { x: 0, z: 0 };
+        let grass = [], birds = [], rainDrops = [];
+        let isRaining = false;
+        let joystickActive = false;
+        let joystickDirection = { x: 0, y: 0 };
+        let time = 0;
 
-        // تهيئة اللعبة
+        // Initialize Game
         function init() {
-            // إنشاء المشهد
+            // Scene
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x87CEEB);
+            scene.fog = new THREE.Fog(0x87CEEB, 50, 250);
 
-            // إنشاء الكاميرا
+            // Camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 10, 20);
-            camera.lookAt(0, 0, 0);
+            camera.position.set(0, 8, 15);
+            camera.lookAt(0, 2, 0);
 
-            // إنشاء المُصيِّر
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            // Renderer
+            const canvas = document.getElementById('gameCanvas');
+            renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.shadowMap.enabled = true;
-            document.body.appendChild(renderer.domElement);
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
 
-            // إضافة الضوء
+            // Lights
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
 
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(50, 100, 50);
-            directionalLight.castShadow = true;
-            scene.add(directionalLight);
+            const sunLight = new THREE.DirectionalLight(0xfff4e6, 1.5);
+            sunLight.position.set(50, 80, 50);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.left = -100;
+            sunLight.shadow.camera.right = 100;
+            sunLight.shadow.camera.top = 100;
+            sunLight.shadow.camera.bottom = -100;
+            scene.add(sunLight);
 
-            // إنشاء الأرض
-            createTerrain();
-            
-            // إنشاء الجبال
-            createMountains();
-            
-            // إنشاء النهر
-            createRiver();
-            
-            // إنشاء الشخصية
+            createEnvironment();
             createPlayer();
+            createBirds();
+            setupJoystick();
             
-            // إضافة المطر
-            createRain();
+            // Random weather changes
+            setInterval(() => {
+                if (Math.random() > 0.7) toggleRain();
+            }, 30000);
 
-            // إضافة أحداث التحكم
-            setupControls();
-            
-            // بدء اللعبة
+            setTimeout(() => {
+                document.getElementById('loading').classList.add('hidden');
+            }, 1500);
+
             animate();
         }
 
-        function createTerrain() {
-            const terrainGeometry = new THREE.PlaneGeometry(100, 100, 50, 50);
-            const terrainMaterial = new THREE.MeshLambertMaterial({ 
-                color: 0x3a7e3a
+        // Create Environment
+        function createEnvironment() {
+            // Sky
+            const skyGeo = new THREE.SphereGeometry(400, 32, 32);
+            const skyMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    topColor: { value: new THREE.Color(0x0077ff) },
+                    bottomColor: { value: new THREE.Color(0x89CFF0) }
+                },
+                vertexShader: `
+                    varying vec3 vPos;
+                    void main() {
+                        vPos = position;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 topColor;
+                    uniform vec3 bottomColor;
+                    varying vec3 vPos;
+                    void main() {
+                        float h = normalize(vPos).y;
+                        gl_FragColor = vec4(mix(bottomColor, topColor, max(h, 0.0)), 1.0);
+                    }
+                `,
+                side: THREE.BackSide
             });
-            
-            terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
-            terrain.rotation.x = -Math.PI / 2;
-            terrain.receiveShadow = true;
-            scene.add(terrain);
-        }
+            const sky = new THREE.Mesh(skyGeo, skyMat);
+            scene.add(sky);
 
-        function createMountains() {
-            for (let i = 0; i < 12; i++) {
-                const angle = (i / 12) * Math.PI * 2;
-                const radius = 45;
-                const x = Math.cos(angle) * radius;
-                const z = Math.sin(angle) * radius;
-                
-                const height = 15 + Math.random() * 10;
-                const mountainGeometry = new THREE.ConeGeometry(8, height, 8);
-                const mountainMaterial = new THREE.MeshLambertMaterial({ 
-                    color: 0x5d4037 
+            // Ground
+            const groundGeo = new THREE.PlaneGeometry(200, 200, 100, 100);
+            const vertices = groundGeo.attributes.position.array;
+            for (let i = 0; i < vertices.length; i += 3) {
+                vertices[i + 2] = Math.sin(vertices[i] * 0.05) * Math.cos(vertices[i + 1] * 0.05) * 0.8;
+            }
+            groundGeo.computeVertexNormals();
+
+            const groundMat = new THREE.MeshStandardMaterial({
+                color: 0x3a7d44,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Grass Blades
+            const grassGeo = new THREE.PlaneGeometry(0.2, 1);
+            const grassMat = new THREE.MeshStandardMaterial({
+                color: 0x4CAF50,
+                side: THREE.DoubleSide
+            });
+
+            for (let i = 0; i < 2000; i++) {
+                const blade = new THREE.Mesh(grassGeo, grassMat);
+                blade.position.x = (Math.random() - 0.5) * 90;
+                blade.position.z = (Math.random() - 0.5) * 90;
+                blade.position.y = 0.5;
+                blade.rotation.y = Math.random() * Math.PI;
+                blade.rotation.x = -Math.PI / 2;
+                grass.push(blade);
+                scene.add(blade);
+            }
+
+            // Mountains
+            createMountain(-70, -60, 1.5);
+            createMountain(75, -55, 1.2);
+            createMountain(-60, 75, 1.1);
+            createMountain(80, 70, 1.3);
+
+            // River
+            const riverGeo = new THREE.PlaneGeometry(10, 150, 60, 60);
+            const riverVerts = riverGeo.attributes.position.array;
+            for (let i = 0; i < riverVerts.length; i += 3) {
+                riverVerts[i + 2] = Math.sin(riverVerts[i + 1] * 0.2) * 0.4;
+            }
+            const riverMat = new THREE.MeshStandardMaterial({
+                color: 0x4A90E2,
+                transparent: true,
+                opacity: 0.7,
+                roughness: 0.1,
+                metalness: 0.8
+            });
+            const river = new THREE.Mesh(riverGeo, riverMat);
+            river.rotation.x = -Math.PI / 2;
+            river.position.y = 0.15;
+            river.position.x = 25;
+            scene.add(river);
+
+            // Clouds
+            for (let i = 0; i < 15; i++) {
+                const cloudGeo = new THREE.SphereGeometry(5 + Math.random() * 3, 8, 8);
+                const cloudMat = new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.7
                 });
-                
-                const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial);
-                mountain.position.set(x, height/2, z);
-                mountain.castShadow = true;
-                
-                scene.add(mountain);
+                const cloud = new THREE.Mesh(cloudGeo, cloudMat);
+                cloud.position.set(
+                    (Math.random() - 0.5) * 300,
+                    40 + Math.random() * 20,
+                    (Math.random() - 0.5) * 300
+                );
+                scene.add(cloud);
             }
         }
 
-        function createRiver() {
-            const riverGeometry = new THREE.PlaneGeometry(8, 40);
-            const riverMaterial = new THREE.MeshLambertMaterial({ 
-                color: 0x0077be,
-                transparent: true,
-                opacity: 0.8
+        function createMountain(x, z, scale) {
+            const mountainGeo = new THREE.ConeGeometry(12 * scale, 30 * scale, 8);
+            const mountainMat = new THREE.MeshStandardMaterial({
+                color: 0x8B7355,
+                roughness: 0.95
             });
-            
-            const river = new THREE.Mesh(riverGeometry, riverMaterial);
-            river.rotation.x = -Math.PI / 2;
-            river.position.set(20, 0.1, 0);
-            scene.add(river);
+            const mountain = new THREE.Mesh(mountainGeo, mountainMat);
+            mountain.position.set(x, 15 * scale, z);
+            mountain.castShadow = true;
+            mountain.receiveShadow = true;
+
+            // Snow
+            const snowGeo = new THREE.ConeGeometry(9 * scale, 12 * scale, 8);
+            const snowMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF });
+            const snow = new THREE.Mesh(snowGeo, snowMat);
+            snow.position.y = 24 * scale;
+            mountain.add(snow);
+
+            scene.add(mountain);
         }
 
+        // Create Player
         function createPlayer() {
-            // جسم اللاعب
-            const bodyGeometry = new THREE.BoxGeometry(0.5, 1.5, 0.3);
-            const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
-            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-            
-            // الرأس
-            const headGeometry = new THREE.SphereGeometry(0.25);
-            const headMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
-            const head = new THREE.Mesh(headGeometry, headMaterial);
-            head.position.y = 0.9;
-            
-            // الخوذة
-            const helmetGeometry = new THREE.SphereGeometry(0.3);
-            const helmetMaterial = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
-            const helmet = new THREE.Mesh(helmetGeometry, helmetMaterial);
-            helmet.position.y = 0.9;
-            helmet.scale.set(1, 0.8, 1);
-            
             player = new THREE.Group();
+
+            // Body (Black T-shirt)
+            const bodyGeo = new THREE.CylinderGeometry(0.4, 0.45, 1, 8);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 1.2;
+            body.castShadow = true;
             player.add(body);
+
+            // Head
+            const headGeo = new THREE.SphereGeometry(0.35, 16, 16);
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xFFDBAC });
+            const head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = 2;
+            head.castShadow = true;
             player.add(head);
+
+            // Green Helmet
+            const helmetGeo = new THREE.SphereGeometry(0.38, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+            const helmetMat = new THREE.MeshStandardMaterial({ color: 0x4CAF50 });
+            const helmet = new THREE.Mesh(helmetGeo, helmetMat);
+            helmet.position.y = 2.15;
+            helmet.castShadow = true;
             player.add(helmet);
-            player.position.set(0, 1, 0);
-            
+
+            // White Pants
+            const legsGeo = new THREE.CylinderGeometry(0.35, 0.3, 1, 8);
+            const legsMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF });
+            const legs = new THREE.Mesh(legsGeo, legsMat);
+            legs.position.y = 0.5;
+            legs.castShadow = true;
+            player.add(legs);
+
+            player.position.set(0, 0.8, 0);
             scene.add(player);
         }
 
-        function createRain() {
-            const rainGeometry = new THREE.BufferGeometry();
-            const rainCount = 5000;
-            const positions = [];
-
-            for (let i = 0; i < rainCount; i++) {
-                positions.push(
-                    Math.random() * 100 - 50,
-                    Math.random() * 50 + 10,
-                    Math.random() * 100 - 50
+        // Create Birds
+        function createBirds() {
+            for (let i = 0; i < 8; i++) {
+                const birdGeo = new THREE.ConeGeometry(0.3, 0.6, 4);
+                const birdMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+                const bird = new THREE.Mesh(birdGeo, birdMat);
+                bird.rotation.x = Math.PI / 2;
+                bird.position.set(
+                    (Math.random() - 0.5) * 100,
+                    15 + Math.random() * 15,
+                    (Math.random() - 0.5) * 100
                 );
+                bird.userData = {
+                    speed: 0.1 + Math.random() * 0.15,
+                    angle: Math.random() * Math.PI * 2
+                };
+                birds.push(bird);
+                scene.add(bird);
+            }
+        }
+
+        // Rain System
+        function toggleRain() {
+            isRaining = !isRaining;
+            document.getElementById('weatherStatus').textContent = isRaining ? '🌧️ مطر' : '☀️ صافي';
+            
+            if (isRaining) {
+                for (let i = 0; i < 1000; i++) {
+                    const dropGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.8, 4);
+                    const dropMat = new THREE.MeshBasicMaterial({ 
+                        color: 0x4A90E2,
+                        transparent: true,
+                        opacity: 0.4
+                    });
+                    const drop = new THREE.Mesh(dropGeo, dropMat);
+                    drop.position.set(
+                        (Math.random() - 0.5) * 120,
+                        Math.random() * 50 + 20,
+                        (Math.random() - 0.5) * 120
+                    );
+                    rainDrops.push(drop);
+                    scene.add(drop);
+                }
+            } else {
+                rainDrops.forEach(drop => scene.remove(drop));
+                rainDrops = [];
+            }
+        }
+
+        // Joystick Setup
+        function setupJoystick() {
+            const joystick = document.getElementById('joystick');
+            const knob = document.getElementById('joystickKnob');
+            const maxDistance = 45;
+
+            function updateJoystick(e) {
+                if (!joystickActive) return;
+                
+                const rect = joystick.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                let x = e.clientX - centerX;
+                let y = e.clientY - centerY;
+                
+                const distance = Math.sqrt(x * x + y * y);
+                if (distance > maxDistance) {
+                    x = (x / distance) * maxDistance;
+                    y = (y / distance) * maxDistance;
+                }
+                
+                knob.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+                
+                joystickDirection.x = x / maxDistance;
+                joystickDirection.y = y / maxDistance;
             }
 
-            rainGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            joystick.addEventListener('mousedown', () => joystickActive = true);
+            joystick.addEventListener('touchstart', () => joystickActive = true);
             
-            const rainMaterial = new THREE.PointsMaterial({
-                color: 0xaaaaaa,
-                size: 0.1,
-                transparent: true
+            document.addEventListener('mouseup', () => {
+                joystickActive = false;
+                knob.style.transform = 'translate(-50%, -50%)';
+                joystickDirection = { x: 0, y: 0 };
             });
-
-            const rain = new THREE.Points(rainGeometry, rainMaterial);
-            scene.add(rain);
-        }
-
-        function setupControls() {
-            document.addEventListener('keydown', (event) => {
-                switch (event.code) {
-                    case 'ArrowUp':
-                    case 'KeyW':
-                        moveState.forward = true;
-                        break;
-                    case 'ArrowDown':
-                    case 'KeyS':
-                        moveState.backward = true;
-                        break;
-                    case 'ArrowLeft':
-                    case 'KeyA':
-                        moveState.left = true;
-                        break;
-                    case 'ArrowRight':
-                    case 'KeyD':
-                        moveState.right = true;
-                        break;
-                }
+            
+            document.addEventListener('touchend', () => {
+                joystickActive = false;
+                knob.style.transform = 'translate(-50%, -50%)';
+                joystickDirection = { x: 0, y: 0 };
             });
-
-            document.addEventListener('keyup', (event) => {
-                switch (event.code) {
-                    case 'ArrowUp':
-                    case 'KeyW':
-                        moveState.forward = false;
-                        break;
-                    case 'ArrowDown':
-                    case 'KeyS':
-                        moveState.backward = false;
-                        break;
-                    case 'ArrowLeft':
-                    case 'KeyA':
-                        moveState.left = false;
-                        break;
-                    case 'ArrowRight':
-                    case 'KeyD':
-                        moveState.right = false;
-                        break;
+            
+            document.addEventListener('mousemove', updateJoystick);
+            document.addEventListener('touchmove', (e) => {
+                if (e.touches.length > 0) {
+                    updateJoystick(e.touches[0]);
                 }
             });
         }
+
+        // Animation Loop
+        let lastTime = Date.now();
+        let frameCount = 0;
 
         function animate() {
             requestAnimationFrame(animate);
+            time += 0.01;
 
-            // تحريك اللاعب
-            const speed = 0.5;
-            
-            if (moveState.forward) {
-                player.position.z -= speed;
-                camera.position.z -= speed;
-            }
-            if (moveState.backward) {
-                player.position.z += speed;
-                camera.position.z += speed;
-            }
-            if (moveState.left) {
-                player.position.x -= speed;
-                camera.position.x -= speed;
-            }
-            if (moveState.right) {
-                player.position.x += speed;
-                camera.position.x += speed;
+            // FPS Counter
+            frameCount++;
+            const currentTime = Date.now();
+            if (currentTime - lastTime >= 1000) {
+                document.getElementById('fps').textContent = `FPS: ${frameCount}`;
+                frameCount = 0;
+                lastTime = currentTime;
             }
 
-            // تحديث نظر الكاميرا لتبع اللاعب
-            camera.lookAt(player.position);
+            // Player Movement
+            const speed = 0.15;
+            playerVelocity.x = joystickDirection.x * speed;
+            playerVelocity.z = joystickDirection.y * speed;
+
+            player.position.x += playerVelocity.x;
+            player.position.z += playerVelocity.z;
+
+            // Boundaries
+            player.position.x = Math.max(-45, Math.min(45, player.position.x));
+            player.position.z = Math.max(-45, Math.min(45, player.position.z));
+
+            // Player rotation
+            if (playerVelocity.x !== 0 || playerVelocity.z !== 0) {
+                player.rotation.y = Math.atan2(playerVelocity.x, playerVelocity.z);
+            }
+
+            // Camera follow
+            camera.position.x = player.position.x;
+            camera.position.z = player.position.z + 15;
+            camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+
+            // Grass animation
+            grass.forEach((blade, i) => {
+                blade.rotation.x = -Math.PI / 2 + Math.sin(time * 2 + i * 0.1) * 0.1;
+            });
+
+            // Birds animation
+            birds.forEach(bird => {
+                bird.userData.angle += bird.userData.speed * 0.02;
+                bird.position.x = Math.cos(bird.userData.angle) * 40;
+                bird.position.z = Math.sin(bird.userData.angle) * 40;
+                bird.position.y += Math.sin(time * 3 + bird.userData.angle) * 0.03;
+                bird.rotation.y = bird.userData.angle + Math.PI / 2;
+            });
+
+            // Rain animation
+            if (isRaining) {
+                rainDrops.forEach(drop => {
+                    drop.position.y -= 0.8;
+                    if (drop.position.y < 0) {
+                        drop.position.y = 50;
+                    }
+                });
+            }
+
+            // Update position display
+            document.getElementById('position').textContent = 
+                `الموقع: (${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)})`;
 
             renderer.render(scene, camera);
         }
 
-        // التعامل مع تغيير حجم النافذة
+        // Window Resize
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // تشغيل اللعبة مباشرة
+        // Start Game
         init();
     </script>
 </body>
